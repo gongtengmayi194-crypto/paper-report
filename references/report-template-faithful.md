@@ -1,9 +1,17 @@
-# {{paper_title}} — 论文汇报稿
+# 论文阅读 | {{year}} {{venue}} | {{paper_title}}
+
+<!-- INSTRUCTION:
+  - 在标题下方放置论文标题截图，必须来自当前论文 PDF 首页自动裁剪结果
+  - 固定使用相对路径 ./images/title-screenshot.png
+-->
+
+![论文标题截图](./images/title-screenshot.png)
 
 > 📄 **论文信息**
 > - **标题：** {{paper_title}}
 > - **作者：** {{authors}}
-> - **发表：** {{venue}} {{year}}
+> - **发表：** [{{venue}} {{year}}]({{publication_url}})
+> - **代码：** [{{code_url}}]({{code_url}})
 > - **链接：** [论文原文]({{paper_url}})
 > - **汇报类型：** 结构保真汇报（仅 Abstract/Introduction/Experiment Conclusion 压缩）
 > - **生成时间：** {{generated_date}}

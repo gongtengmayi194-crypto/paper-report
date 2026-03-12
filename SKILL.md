@@ -18,6 +18,8 @@ description: >
 - Method、核心实验、消融、局限等章节高保真呈现
 - 图表使用实际裁剪的 PNG 图片嵌入（非文字占位符）
 - 公式保留原始 LaTeX 与符号定义
+- 报告开头必须放置从论文 PDF 首页面自动截取的标题截图
+- 报告头部“发表”和“代码”字段必须可点击跳转（Markdown 超链接）
 
 **输出**：`论文汇报稿.md`（单一 Markdown 文件）
 
@@ -41,16 +43,22 @@ pip install PyMuPDF>=1.23.0 pdfplumber>=0.10.0 Pillow
    ```
 4. 读取 `<output_dir>/sections.json`，获取 title、authors、abstract、sections[]
 
-### Phase 2: 提取图表与公式（并行）
+### Phase 2: 提取标题截图、图表与公式（并行）
 
 同时运行：
-1. 图表裁剪：
+1. 标题截图裁剪（复用现有 `validate_fidelity.py`，不新增脚本）：
+   ```bash
+   python ~/.config/opencode/skills/paper-report/scripts/validate_fidelity.py extract-title <pdf_path> <output_dir>/images/title-screenshot.png
+   ```
+   → 将论文第一页标题区自动裁剪为 `<output_dir>/images/title-screenshot.png`
+
+2. 图表裁剪：
    ```bash
    python ~/.config/opencode/skills/paper-reader/scripts/extract_figures.py <pdf_path> <output_dir>/images/
    ```
    → 读取 `<output_dir>/images/figure_map.json`，获取每张图/表的 id、kind、file、page、caption
 
-2. 公式提取：
+3. 公式提取：
    ```bash
    python ~/.config/opencode/skills/paper-reader/scripts/extract_formulas.py <pdf_path> <output_dir>/
    ```
@@ -64,6 +72,13 @@ pip install PyMuPDF>=1.23.0 pdfplumber>=0.10.0 Pillow
 2. 读取 `references/compression-policy.md`（**必读**）
 3. 读取 `references/report-template-faithful.md`（**必读**）
 4. 按模板逐章节生成汇报稿：
+
+**报告头部格式规则**（硬约束）：
+- 一级标题格式：`论文阅读 | 年份 期刊 | 英文标题`
+- 标题下方必须放置论文标题截图：`![论文标题截图](./images/title-screenshot.png)`
+- 标题截图必须来自当前论文 PDF 的自动裁剪结果，不可复用其它论文截图
+- “发表”字段必须使用超链接，显示文字不变但可点击跳转
+- “代码”字段必须使用超链接，显示文字不变但可点击跳转
 
 **章节分类与处理策略**：
 
@@ -124,6 +139,7 @@ python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>
 ## Key Rules
 
 - **MUST**: 图表使用实际裁剪的 PNG 图片嵌入，禁止文字占位符
+- **MUST**: 报告开头标题截图必须由 `scripts/validate_fidelity.py extract-title` 从当前论文 PDF 自动生成
 - **MUST**: Method 与核心实验章节不做任何删减
 - **MUST**: 公式保留原始 LaTeX 与编号，关键变量附符号定义
 - **MUST**: 术语首现采用"中文（English）"格式，后文保持一致
@@ -145,6 +161,7 @@ python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>
 - **保真规则**: `references/fidelity-rules.md`（术语、图表、公式、证据追溯）
 - **压缩策略**: `references/compression-policy.md`（仅三处可压缩的执行规则）
 - **验证脚本**: `scripts/validate_fidelity.py`（检查是否越权删减、图表是否嵌入）
+- **标题截图提取**: `scripts/validate_fidelity.py extract-title`（自动裁剪首页标题区）
 - **外部脚本**（来自 paper-reader）:
   - `~/.config/opencode/skills/paper-reader/scripts/pdf_to_sections.py`
   - `~/.config/opencode/skills/paper-reader/scripts/extract_figures.py`

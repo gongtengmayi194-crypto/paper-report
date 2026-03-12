@@ -17,6 +17,7 @@ validate_fidelity.py — paper-report 汇报稿保真度验证脚本
 """
 
 import json
+import importlib
 import re
 import sys
 from pathlib import Path
@@ -39,6 +40,146 @@ def load_json(path: str) -> dict:
     except json.JSONDecodeError as e:
         print(f"FAIL: JSON 解析失败 — {path}: {e}")
         sys.exit(2)
+
+
+def import_fitz():
+    try:
+        return importlib.import_module("fitz")
+    except Exception as e:
+        print(f"FAIL: 需要 PyMuPDF 才能提取标题截图: {e}")
+        print("请安装: pip install pymupdf")
+        sys.exit(2)
+
+
+def _normalize_space(text: str) -> str:
+    return " ".join(text.replace("\u00a0", " ").split()).strip()
+
+
+def _extract_title_text_blocks(page_dict: dict, fitz_mod) -> list[dict]:
+    blocks_out: list[dict] = []
+    for block in page_dict.get("blocks", []):
+        if not isinstance(block, dict) or block.get("type") != 0:
+            continue
+
+        chunks: list[str] = []
+        max_font = 0.0
+        for line in block.get("lines", []):
+            if not isinstance(line, dict):
+                continue
+            spans = line.get("spans", [])
+            if not isinstance(spans, list):
+                continue
+
+            line_text = "".join(
+                span.get("text", "") for span in spans if isinstance(span, dict)
+            )
+            line_text = _normalize_space(line_text)
+            if line_text:
+                chunks.append(line_text)
+
+            for span in spans:
+                if not isinstance(span, dict):
+                    continue
+                size = span.get("size", 0.0)
+                if isinstance(size, (int, float)):
+                    max_font = max(max_font, float(size))
+
+        text = _normalize_space(" ".join(chunks))
+        bbox_data = block.get("bbox")
+        if not text or bbox_data is None:
+            continue
+
+        blocks_out.append(
+            {
+                "bbox": fitz_mod.Rect(bbox_data),
+                "text": text,
+                "max_font_size": max_font,
+            }
+        )
+
+    return blocks_out
+
+
+def _detect_abstract_y(blocks: list[dict], page_height: float) -> float | None:
+    abstract_re = re.compile(r"^\s*(abstract|摘要)\b", re.IGNORECASE)
+    ys: list[float] = []
+    for block in blocks:
+        bbox = block["bbox"]
+        if bbox.y0 < page_height * 0.08:
+            continue
+        if abstract_re.match(str(block["text"])):
+            ys.append(float(bbox.y0))
+    if not ys:
+        return None
+    return min(ys)
+
+
+def _estimate_title_crop_bottom(blocks: list[dict], page_height: float, abstract_y: float | None) -> float:
+    min_bottom = page_height * 0.25
+    max_bottom = page_height * 0.75
+
+    if abstract_y is not None:
+        bottom = abstract_y - max(12.0, page_height * 0.01)
+        return max(min_bottom, min(bottom, max_bottom))
+
+    if not blocks:
+        return page_height * 0.45
+
+    top_blocks = [block for block in blocks if block["bbox"].y0 < page_height * 0.70]
+    if not top_blocks:
+        return page_height * 0.45
+
+    max_font = max(float(block["max_font_size"]) for block in top_blocks)
+    large_blocks = [
+        block
+        for block in top_blocks
+        if float(block["max_font_size"]) >= max(max_font * 0.55, 10.0)
+    ]
+
+    if large_blocks:
+        bottom = max(float(block["bbox"].y1) for block in large_blocks)
+    else:
+        bottom = page_height * 0.30
+
+    gap_limit = page_height * 0.03
+    for block in sorted(top_blocks, key=lambda item: (item["bbox"].y0, item["bbox"].x0)):
+        bbox = block["bbox"]
+        if bbox.y0 <= bottom + gap_limit:
+            bottom = max(bottom, float(bbox.y1))
+
+    bottom += page_height * 0.02
+    return max(page_height * 0.35, min(bottom, max_bottom))
+
+
+def extract_title_screenshot(pdf_path: str, output_png_path: str, dpi: int = 220) -> None:
+    fitz_mod = import_fitz()
+    p = Path(pdf_path)
+    out = Path(output_png_path)
+
+    if not p.exists():
+        print(f"FAIL: PDF 不存在 — {pdf_path}")
+        sys.exit(2)
+
+    with fitz_mod.open(p) as doc:
+        if len(doc) == 0:
+            print("FAIL: PDF 无页面")
+            sys.exit(2)
+
+        page = doc[0]
+        page_rect = page.rect
+        page_dict = page.get_text("dict")
+        blocks = _extract_title_text_blocks(page_dict, fitz_mod)
+        abstract_y = _detect_abstract_y(blocks, float(page_rect.height))
+        bottom = _estimate_title_crop_bottom(blocks, float(page_rect.height), abstract_y)
+
+        clip = fitz_mod.Rect(0.0, 0.0, float(page_rect.width), bottom)
+        clip &= page_rect
+
+        pix = page.get_pixmap(dpi=dpi, clip=clip, alpha=False)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        pix.save(str(out))
+
+    print(f"PASS: 标题截图已生成 — {out}")
 
 
 def check_figure_placeholders(report: str) -> list[dict]:
@@ -332,6 +473,14 @@ def check_teaching_language(report: str) -> list[dict]:
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "extract-title":
+        if len(sys.argv) < 4:
+            print("用法: python validate_fidelity.py extract-title <pdf_path> <output_png_path> [dpi]")
+            sys.exit(1)
+        dpi = int(sys.argv[4]) if len(sys.argv) >= 5 else 220
+        extract_title_screenshot(sys.argv[2], sys.argv[3], dpi)
+        sys.exit(0)
+
     if len(sys.argv) < 4:
         print("用法: python validate_fidelity.py <report.md> <sections.json> <figure_map.json>")
         print()
@@ -339,6 +488,9 @@ def main():
         print("  report.md        — 生成的汇报稿 Markdown 文件")
         print("  sections.json    — pdf_to_sections.py 输出的章节结构")
         print("  figure_map.json  — extract_figures.py 输出的图表元数据")
+        print()
+        print("扩展用法:")
+        print("  python validate_fidelity.py extract-title <pdf_path> <output_png_path> [dpi]")
         sys.exit(1)
 
     report_path = sys.argv[1]
