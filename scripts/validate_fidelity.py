@@ -198,8 +198,16 @@ def check_figure_placeholders(report: str) -> list[dict]:
         (r"(?<!\!)fig\d+", "裸文字 fig 引用（非图片嵌入）"),
     ]
 
+    image_md_pattern = re.compile(r"!\[[^\]]*\]\((?:<[^>]+>|[^)]+)\)")
+
+    def _mask_image(match: re.Match[str]) -> str:
+        text = match.group(0)
+        return "".join("\n" if ch == "\n" else " " for ch in text)
+
+    report_for_scan = image_md_pattern.sub(_mask_image, report)
+
     for pattern, desc in placeholder_patterns:
-        matches = re.finditer(pattern, report, re.IGNORECASE)
+        matches = re.finditer(pattern, report_for_scan, re.IGNORECASE)
         for match in matches:
             # 排除在 Markdown 图片语法 ![ ] 中的匹配
             start = match.start()
@@ -243,13 +251,39 @@ def check_figure_coverage(report: str, figure_map: dict) -> list[dict]:
     # 提取报告中所有 Markdown 图片引用
     img_pattern = r"!\[.*?\]\((.*?)\)"
     embedded_images = set()
+    data_uri_count = 0
     for match in re.finditer(img_pattern, report):
-        img_path = match.group(1)
+        img_path = match.group(1).strip()
+        if img_path.startswith("data:image/"):
+            data_uri_count += 1
+            continue
         # 提取文件名
         img_name = Path(img_path).name
         embedded_images.add(img_name.lower())
 
-    # 检查每个图表是否被嵌入
+    total = len(figures)
+
+    if data_uri_count > 0:
+        if data_uri_count >= total:
+            issues.append(
+                {
+                    "type": "PASS",
+                    "check": "图表覆盖",
+                    "message": f"检测到 {data_uri_count} 张内嵌图片（data URI），覆盖全部 {total} 张图表",
+                    "detail": "",
+                }
+            )
+        else:
+            issues.append(
+                {
+                    "type": "WARN",
+                    "check": "图表覆盖",
+                    "message": f"内嵌图片数量不足：检测到 {data_uri_count} 张，少于图表总数 {total}",
+                    "detail": "请确认导出时已完成图片内嵌且未遗漏图表",
+                }
+            )
+        return issues
+
     for fig in figures:
         fig_file = fig.get("file", "")
         fig_id = fig.get("id", "unknown")
@@ -270,7 +304,6 @@ def check_figure_coverage(report: str, figure_map: dict) -> list[dict]:
             )
 
     # 统计
-    total = len(figures)
     missing = sum(1 for i in issues if i["check"] == "图表覆盖" and i["type"] == "WARN")
     if total > 0 and missing == 0:
         issues.append(
@@ -472,6 +505,58 @@ def check_teaching_language(report: str) -> list[dict]:
     return issues
 
 
+def check_cross_references(report: str) -> list[dict]:
+    issues = []
+
+    citation_pattern = re.compile(r"\[(\d+(?:\s*[-,]\s*\d+)*)\](?!\()")
+
+    matches = list(citation_pattern.finditer(report))
+    if not matches:
+        issues.append(
+            {
+                "type": "PASS",
+                "check": "交叉引用",
+                "message": "未检测到文献交叉引用编号",
+                "detail": "",
+            }
+        )
+        return issues
+
+    for match in matches[:20]:
+        start = match.start()
+
+        line_start = report.rfind("\n", 0, start) + 1
+        line_end = report.find("\n", start)
+        if line_end == -1:
+            line_end = len(report)
+        line = report[line_start:line_end]
+
+        if line.strip().startswith("```") or line.strip().startswith("`"):
+            continue
+
+        line_num = report[:start].count("\n") + 1
+        issues.append(
+            {
+                "type": "FAIL",
+                "check": "交叉引用",
+                "message": f"第 {line_num} 行发现文献交叉引用编号：'{match.group()}'",
+                "detail": "请移除如 [13]、[1,2] 的编号，仅保留正文语义",
+            }
+        )
+
+    if not issues:
+        issues.append(
+            {
+                "type": "PASS",
+                "check": "交叉引用",
+                "message": "未检测到文献交叉引用编号",
+                "detail": "",
+            }
+        )
+
+    return issues
+
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "extract-title":
         if len(sys.argv) < 4:
@@ -510,6 +595,7 @@ def main():
     all_issues.extend(check_formula_presence(report))
     all_issues.extend(check_terminology_consistency(report))
     all_issues.extend(check_teaching_language(report))
+    all_issues.extend(check_cross_references(report))
 
     # 输出报告
     print("=" * 60)

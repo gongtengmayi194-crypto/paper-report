@@ -20,8 +20,12 @@ description: >
 - 公式保留原始 LaTeX 与符号定义
 - 报告开头必须放置从论文 PDF 首页面自动截取的标题截图
 - 报告头部“发表”和“代码”字段必须可点击跳转（Markdown 超链接）
+- 全文去除文献交叉引用标记（如 `[13]`、`[1,2]`），仅保留正文语义
+- 支持导出单一 Markdown 文件（图片内嵌 base64，便于直接分发）
 
-**输出**：`论文汇报稿.md`（单一 Markdown 文件）
+默认产物要求：最终交付文件必须为图片内嵌（base64）的单一 Markdown，不保留并行的非内嵌版本。
+
+**输出**：`论文阅读 ｜ 年份 期刊 ｜ 英文题目.md`（单一 Markdown 文件，文件名与一级标题一致）
 
 ## Dependencies
 
@@ -79,6 +83,7 @@ pip install PyMuPDF>=1.23.0 pdfplumber>=0.10.0 Pillow
 - 标题截图必须来自当前论文 PDF 的自动裁剪结果，不可复用其它论文截图
 - “发表”字段必须使用超链接，显示文字不变但可点击跳转
 - “代码”字段必须使用超链接，显示文字不变但可点击跳转
+- 正文不得保留任何文献交叉引用编号（如 `[13]`、`[24,25]`）
 
 **章节分类与处理策略**：
 
@@ -105,7 +110,7 @@ pip install PyMuPDF>=1.23.0 pdfplumber>=0.10.0 Pillow
 - 关键变量首次出现时给出符号定义表（简洁版，非教学化逐符号拆解）
 - 公式编号与原文保持一致
 
-5. 输出 `{paper-name}/论文汇报稿.md`
+5. 输出 `{paper-name}/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md`（与一级标题一致）
 
 ### Phase 4: 质量校验
 
@@ -113,6 +118,9 @@ pip install PyMuPDF>=1.23.0 pdfplumber>=0.10.0 Pillow
 ```bash
 python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>/sections.json <output_dir>/images/figure_map.json
 ```
+
+将 `<output_dir>/论文汇报稿.md` 替换为实际输出文件名：
+`<output_dir>/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md`
 
 校验项：
 - 删减范围是否越界（仅三处可压缩）
@@ -122,11 +130,36 @@ python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>
 
 如校验失败，根据报告修复后重新校验。
 
+### Phase 5: 单文件内嵌导出（默认）
+
+将报告中的本地图片链接内嵌为 base64，并直接覆盖最终输出文件：
+
+```bash
+python scripts/embed_images_single_md.py <input_md> <output_single_md>
+```
+
+示例：
+
+```bash
+python scripts/embed_images_single_md.py \
+  "<output_dir>/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md" \
+  "<output_dir>/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md"
+```
+
+若文档体积过大，建议在同一命令中开启压缩参数：
+
+```bash
+python scripts/embed_images_single_md.py \
+  "<output_dir>/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md" \
+  "<output_dir>/论文阅读 ｜ 年份 期刊 ｜ 英文题目.md" \
+  --compress --process-data-uri --max-width 1400 --jpeg-quality 80
+```
+
 ## Output Structure
 
 ```
 {paper-name}/
-├── 论文汇报稿.md          # 最终汇报稿
+├── 论文阅读 ｜ 年份 期刊 ｜ 英文题目.md   # 最终汇报稿（与一级标题一致，图片已内嵌）
 ├── images/                 # 裁剪的图表 PNG
 │   ├── figure_001.png
 │   ├── figure_002.png
@@ -144,6 +177,7 @@ python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>
 - **MUST**: 公式保留原始 LaTeX 与编号，关键变量附符号定义
 - **MUST**: 术语首现采用"中文（English）"格式，后文保持一致
 - **MUST**: 每个核心结论可追溯到原文章节/图表/公式
+- **MUST**: 全文移除文献交叉引用标记（如 `[13]`、`[1,2,3]`）
 - **MUST NOT**: 使用生活类比、大白话改写、"零基础"风格批注
 - **MUST NOT**: 生成口语化讲稿或过度主观评价
 - **MUST NOT**: 省略消融实验、局限性、误差分析等章节
@@ -162,6 +196,7 @@ python scripts/validate_fidelity.py <output_dir>/论文汇报稿.md <output_dir>
 - **压缩策略**: `references/compression-policy.md`（仅三处可压缩的执行规则）
 - **验证脚本**: `scripts/validate_fidelity.py`（检查是否越权删减、图表是否嵌入）
 - **标题截图提取**: `scripts/validate_fidelity.py extract-title`（自动裁剪首页标题区）
+- **单文件导出**: `scripts/embed_images_single_md.py`（将图片转为 base64 内嵌）
 - **外部脚本**（来自 paper-reader）:
   - `~/.config/opencode/skills/paper-reader/scripts/pdf_to_sections.py`
   - `~/.config/opencode/skills/paper-reader/scripts/extract_figures.py`
